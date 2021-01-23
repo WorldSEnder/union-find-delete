@@ -14,6 +14,7 @@ module Control.Monad.Trans.UnionFindDelete.UnionFindT
 , UFILinkInfo
 ) where
 
+import qualified Control.Monad.Trans.Class as Trans
 import qualified Control.Monad.Trans.UnionFindDelete.Class as UFC
 import qualified Control.Monad.Trans.UnionFindDelete.Util as UFC
 
@@ -158,7 +159,7 @@ instance Eq (UFILinkInfo b) where
   (==) = (==) `on` _ufiliRoot
 
 newtype UnionFindT a b m r = UnionFindT { getUnionFind :: S.StateT (UFIState a b) m r }
-  deriving (Functor, Applicative, Monad, Alternative, MonadIO)
+  deriving (Functor, Applicative, Monad, Alternative, MonadIO, Trans.MonadTrans)
 
 type UnionFind a b r = UnionFindT a b Identity r
 
