@@ -4,6 +4,7 @@ import Test.HUnit
 
 import Control.Monad.Trans.UnionFindDelete.Class
 import Control.Monad.Trans.UnionFindDelete.UnionFindT
+import qualified Control.Monad.Trans.UnionFindDelete.UnionFindSimple as Simple
 
 import Control.Applicative
 import Control.Lens
@@ -42,8 +43,8 @@ initializingUnionFind = do
   liftIO $ val0 @?= def
   liftIO $ val1 @?= def
 
-graphUnionFind :: (Alternative m, MonadIO m, UnionFindMonad m Integer (DefaultConst (Product Integer))) => (String -> m ()) -> m ()
-graphUnionFind step = do
+graphUnionFind :: (Alternative m, MonadIO m, UnionFindMonad m Integer (DefaultConst (Product Integer))) => Bool -> (String -> m ()) -> m ()
+graphUnionFind testDelete step = do
   step "initializing the graph"
   forM_ sampleGraph $ \(start, end) -> do
     insert start $ DefaultConst $ Product start
@@ -57,17 +58,22 @@ graphUnionFind step = do
     liftIO $ valc @=? mconcat (DefaultConst . Product <$> cc)
 
   -- forget 3, then test that 2 still has the same value
-  step "testing deleting works"
-  forget 3
-  val2 <- find 2
-  liftIO $ val2 @=? DefaultConst (Product $ 2 * 3 * 5 * 7 * 11)
-  val3 <- find 3
-  liftIO $ val3 @=? def
+  when testDelete $ do
+    step "testing deleting works"
+    forget 3
+    val2 <- find 2
+    liftIO $ val2 @=? DefaultConst (Product $ 2 * 3 * 5 * 7 * 11)
+    val3 <- find 3
+    liftIO $ val3 @=? def
 
 main :: IO ()
 main = defaultMain $ testGroup "union find test"
-  [ testCase "trivial union find" $ do
-      evalUnionFindT initializingUnionFind newUFIState
+  [ testCase "(Simple) trivial union find" $ do
+      Simple.evalUnionFindT initializingUnionFind def
+  , testCaseSteps "(Simple) union find on sample graph works" $ \step -> do
+      Simple.evalUnionFindT (graphUnionFind False $ liftIO . step) def
+  , testCase "trivial union find" $ do
+      evalUnionFindT initializingUnionFind def
   , testCaseSteps "union find on sample graph works" $ \step -> do
-      evalUnionFindT (graphUnionFind $ liftIO . step) def
+      evalUnionFindT (graphUnionFind True $ liftIO . step) def
   ]

@@ -39,19 +39,14 @@ class (S.MonadState (UnionFindState m) m, Eq (UnionFindId m), UnionFindAccessor 
   type UnionFindAccess m
   -- | Get access to the associated value for the given key.
   -- 
-  -- Note that finding a value will effect the underlying storage
-  -- and insert the key, even if no value is associated.
+  -- Note that finding a value will effect the underlying storage even if no value is associated, yet.
   -- Consider
   -- 
   -- > do
   -- >   union key1 key2
-  -- >   lookupFirst <- find key1
-  -- >   lookupFirst := value
+  -- >   insert key1 value
   --
   -- One would expect that looking up the element for 'key2' finds 'value'.
-  --
-  -- Note that one _get_ the wrapper around the value and compare
-  -- it for equality, but not _set_ the wrapper, only the associated value.
   findFor :: UnionFindKey m -> m (UnionFindAccess m)
   -- | Union the value of two keys. If only one of the values has been set,
   -- prefer that one.
@@ -64,26 +59,28 @@ class (S.MonadState (UnionFindState m) m, Eq (UnionFindId m), UnionFindAccessor 
 type UnionFind' m a b = (UnionFind m, a ~ UnionFindKey m, b ~ UnionFindVal m)
 type UnionFindMonad m a b = (Monad m, UnionFind' m a b)
 
+-- | Find the value and an equality comparable identity attached to the value. The identity compares equal for
+-- two keys iff they are associated to the same value.
 find' :: (UnionFindMonad m a b) => a -> m (UnionFindId m, UnionFindVal m)
-find' key = do
-  (getLookup -> place) <- findFor key
-  iharvest place
+find' key = findFor key >>= iharvest . getLookup
 
+-- | Find the value associated to a key.
 find :: (UnionFindMonad m a b) => a -> m b
-find key = do
-  (getLookup -> place) <- findFor key
-  harvest place
+find key = findFor key >>= harvest . getLookup
 
+-- | Assign the value associated to a key.
 insert :: (UnionFindMonad m a b) => a -> b -> m ()
 insert key val = do
-  (getLookup -> place) <- findFor key
-  place .= val
+  place <- findFor key
+  getLookup place .= val
 
+-- | 'union = unionWith (<>)', for the case where the value is a 'Monoid'.
 union :: (UnionFindMonad m a b, Monoid b) => a -> a -> m ()
 union = unionWith (<>)
 
--- | A specific morphism for producing values 'b' from innputs 'a'.
+-- | Used to initialize the value of a key that is not yet associated with a value, in some Union-Find implementations.
 class DefaultFor a b where
+  -- | A specific morphism for producing values 'b' from innputs 'a'.
   defFor :: a -> b
 
 -- | Newtype for producing instances of 'DefaultFor' for values with a 'Default' class, in case
