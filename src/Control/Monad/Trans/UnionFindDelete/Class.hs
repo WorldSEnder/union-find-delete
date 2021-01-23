@@ -27,7 +27,7 @@ class UnionFindAccessor acc m | acc -> m where
   -- this accessor was created.
   getLookup :: acc -> IndexedLens' (UnionFindId m) (UnionFindState m) (UnionFindVal m)
 
--- | Class of union find monads, where one can find 'UnionFindVal m' associated with 'UnionFindKey m's.
+-- | Class of union find monads, where one can find @UnionFindVal m@ associated with @UnionFindKey m@s.
 class (S.MonadState (UnionFindState m) m, Eq (UnionFindId m), UnionFindAccessor (UnionFindAccess m) m) => UnionFind m where
   type UnionFindKey m
   type UnionFindVal m
@@ -74,7 +74,7 @@ insert key val = do
   place <- findFor key
   getLookup place .= val
 
--- | 'union = unionWith (<>)', for the case where the value is a 'Monoid'.
+-- | @union = unionWith (<>)@, for the case where the value is a 'Monoid'.
 union :: (UnionFindMonad m a b, Monoid b) => a -> a -> m ()
 union = unionWith (<>)
 

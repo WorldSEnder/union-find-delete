@@ -134,6 +134,7 @@ data UFIState a b = UFIState
   , _ufisNextId :: {-# UNPACK #-} !NodeIdx
   }
 
+-- | Create a new empty state
 newUFIState :: UFIState a b
 newUFIState = UFIState IMap.empty Map.empty 0
 
@@ -142,6 +143,7 @@ instance Default (UFIState a b) where
 
 $(makeLenses ''UFIState)
 
+-- | Node identity
 data UFILinkInfo b = UFILinkInfo
   { _ufiliRoot :: {-# UNPACK #-} !NodeIdx
   , _ufiliRank :: {-# UNPACK #-} !Int
