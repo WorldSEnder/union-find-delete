@@ -7,16 +7,11 @@ import Control.Monad.Trans.UnionFindDelete.UnionFindT
 import qualified Control.Monad.Trans.UnionFindDelete.UnionFindSimple as Simple
 
 import Control.Applicative
-import Control.Lens
 import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Default (def)
-import Data.Maybe (isNothing)
 import Data.Monoid (Product(..))
-
-assertThat :: MonadIO m => String -> Bool -> m ()
-assertThat message = liftIO . assertBool message
 
 sampleGraph :: [(Integer, Integer)]
 sampleGraph =

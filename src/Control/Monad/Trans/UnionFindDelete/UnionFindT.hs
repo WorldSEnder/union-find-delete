@@ -21,10 +21,9 @@ import Control.Monad (when, unless)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Default.Class (Default(def))
 import Data.Function (on)
+import Data.Kind (Type)
 import Data.Maybe (isNothing)
-import Data.Monoid (First(getFirst))
 import qualified Control.Monad.State.Strict as S
-import qualified Data.Functor.Identity as I
 import qualified Data.IntMap as IMap
 import qualified Data.Map as Map
 
@@ -35,14 +34,10 @@ type NodeIdx = Int
 unsafeIx :: NodeIdx -> Lens' (IMap.IntMap b) b
 unsafeIx key = at key . assertJust where
   assertJust f (Just x) = Just <$> f x
-  assertJust f Nothing = error $ "internal invariant: expected " ++ show key ++ " to exist"
+  assertJust _ Nothing = error $ "internal invariant: expected " ++ show key ++ " to exist"
 
 assertM :: Applicative m => Bool -> m ()
 assertM = flip assert $ pure ()
-
-applyWhen :: Bool -> (a -> a) -> (a -> a)
-applyWhen True f = f
-applyWhen False _ = id
 
 -- UFI = Union-Find-Int with deletion
 
@@ -106,7 +101,7 @@ $(makeLenses ''UFINode)
 _AssertRoot :: HasCallStack => Lens' (UFINode b) (UFIRoot b)
 _AssertRoot = ufinFlavor . inner where
   inner :: HasCallStack => Lens' (UFIFlavor b) (UFIRoot b)
-  inner f (UFIFlavorLink l) = error "node is not a root"
+  inner _ (UFIFlavorLink _) = error "node is not a root"
   inner f (UFIFlavorRoot r) = UFIFlavorRoot <$> f r
 
 _Root :: Traversal' (UFINode b) (UFIRoot b)
@@ -116,7 +111,7 @@ _AssertLink :: HasCallStack => Lens' (UFINode b) UFILink
 _AssertLink = ufinFlavor . inner where
   inner :: HasCallStack => Lens' (UFIFlavor b) UFILink
   inner f (UFIFlavorLink l) = UFIFlavorLink <$> f l
-  inner f (UFIFlavorRoot r) = error "node is not a link"
+  inner _ (UFIFlavorRoot _) = error "node is not a link"
 
 _Link :: Traversal' (UFINode b) UFILink
 _Link = ufinFlavor . _UFIFlavorLink
@@ -160,7 +155,7 @@ instance Eq (UFILinkInfo b) where
 newtype UnionFindT a b m r = UnionFindT { getUnionFind :: S.StateT (UFIState a b) m r }
   deriving (Functor, Applicative, Monad, Alternative, MonadIO)
 
-type UnionFind a b r = UnionFindT a b Identity r 
+type UnionFind a b r = UnionFindT a b Identity r
 
 runUnionFindT :: UnionFindT a b m r -> UFIState a b -> m (r, UFIState a b)
 runUnionFindT = S.runStateT . getUnionFind
@@ -180,8 +175,8 @@ stateful = S.state . S.runState . getUnionFind
 -- Remove a node from the parent's inner link list
 removeInnerNode :: NodeIdx -> S.State (InternalLinkMap b) ()
 removeInnerNode nodeIdx = do
-  nodeLink <- use (unsafeIx nodeIdx . ufinFlavor)
-  case nodeLink of
+  node <- use (unsafeIx nodeIdx . ufinFlavor)
+  case node of
     -- if it's not a node, nothing to do here
     UFIFlavorRoot{} -> pure ()
     UFIFlavorLink nodeLink -> do
@@ -205,7 +200,7 @@ removeNode nodeIdx = do
   removeInnerNode nodeIdx
   when (lsib /= noLink) $ unsafeIx lsib . _AssertLink . ufilRightSib .= rsib
   when (rsib /= noLink) $ unsafeIx rsib . _AssertLink . ufilLeftSib  .= lsib
-  newParent <- unsafeIx parentIdx  <%= (ufinLeftmostChild %~ \c -> if c == nodeIdx then rsib else c)
+  newParent <- unsafeIx parentIdx <%= (ufinLeftmostChild %~ \c -> if c == nodeIdx then rsib else c)
   -- also remove the parent from the grand parent's inner child list, if node was the last child
   when (newParent ^. ufinLeftmostChild == noLink) $ removeInnerNode parentIdx
   return (parentIdx, newParent)
@@ -241,22 +236,22 @@ appendNode nodeIdx parentIdx = do
   node . ufinFlavor .= newLink
 
 children :: Getter (InternalLinkMap b) (UFINode b -> [(NodeIdx, UFINode b)])
-children = to init
+children = to conv
   where
-  init map = go . view ufinLeftmostChild
+  conv env = go . view ufinLeftmostChild
     where
-    go ix | ix == noLink = []
-    go ix = let node = (map ^. unsafeIx ix)
-             in (ix, node) : go (node ^. _AssertLink . ufilRightSib)
+    go i | i == noLink = []
+    go i = let node = (env ^. unsafeIx i)
+            in (i, node) : go (node ^. _AssertLink . ufilRightSib)
 
 innerChildren :: Getter (InternalLinkMap b) (UFINode b -> [(NodeIdx, UFINode b)])
-innerChildren = to init
+innerChildren = to conv
   where
-  init map = go . view ufinLeftmostInnerChild
+  conv env = go . view ufinLeftmostInnerChild
     where
-    go ix | ix == noLink = []
-    go ix = let node = (map ^. unsafeIx ix)
-             in (ix, node) : go (node ^. _AssertLink . ufilRightInnerSib)
+    go i | i == noLink = []
+    go i = let node = (env ^. unsafeIx i)
+            in (i, node) : go (node ^. _AssertLink . ufilRightInnerSib)
 
 -- Shortcut the node to a new parent, higher up in the tree. Maintains invariants
 shortcut :: NodeIdx -> NodeIdx -> S.State (InternalLinkMap b) ()
@@ -269,13 +264,13 @@ shortcut nodeIdx toIdx = do
   -- if the parent is vacant and would be left with a single child
   -- shortcut the parent for that child and remove the parent
   when (parent ^. ufinVacant) $ use children ?? parent >>= \case
-    [(singlChildIx, singlChild)] -> do
+    [(singlChildIx, _)] -> do
       let gparentIdx = parent ^?! _Link . ufilParent
       -- First append the node to the grandparent, then remove parent
       -- This never leaves the grandparent without children, and avoids
       -- unnecessary modifications to the grand-grandparent's inner children list
       appendNode singlChildIx gparentIdx
-      removeNode parentIdx
+      _ <- removeNode parentIdx
       -- finally, delete parent, since it's now a vacant leaf node
       at parentIdx .= Nothing
     _ -> pure ()
@@ -285,22 +280,23 @@ shortcut nodeIdx toIdx = do
 -- vacate the node: set status to vacant, then restore invariants if the node is a link.
 -- return the node index from which to start "doing some work" (see paper lemma 4)
 vacate :: NodeIdx -> S.State (InternalLinkMap b) NodeIdx
-vacate nodeIdx = do
-  exNode <- unsafeIx nodeIdx <%= (ufinVacant .~ True)
-  reestablishInvariant nodeEmptyCase nodeIdx exNode  
+vacate toVacIdx = do
+  exNode <- unsafeIx toVacIdx <%= (ufinVacant .~ True)
+  reestablishInvariant nodeEmptyCase toVacIdx exNode  
   where
-    reestablishInvariant emptyCase nodeIdx node
-      -- all is well if the node is not vacant
-      | not (node ^. ufinVacant) = return nodeIdx
+  reestablishInvariant emptyCase nodeIdx node
+    -- all is well if the node is not vacant
+    | not (node ^. ufinVacant) = return nodeIdx
+    | otherwise = case node ^. ufinFlavor of
       -- or if the node is a root node
-      | UFIFlavorRoot _ <- node ^. ufinFlavor = return nodeIdx
+      UFIFlavorRoot _ -> return nodeIdx
       -- if the node is a link, inspect how many children it has
-      | UFIFlavorLink nodeLink <- node ^. ufinFlavor = use children ?? node >>= \case
+      UFIFlavorLink nodeLink -> use children ?? node >>= \case
         -- if the node has no remaining children remove it entirely
         [] -> emptyCase nodeIdx nodeLink
         -- if the node has just a single child now, reestablish invariant
         -- by shortcutting the child to node's parent
-        [(singlChildIx, singlChild)] -> do
+        [(singlChildIx, _)] -> do
           let parentIdx = nodeLink ^. ufilParent
           (_nodeIdx, _) <- removeNode singlChildIx
           assertM (nodeIdx == _nodeIdx)
@@ -313,14 +309,14 @@ vacate nodeIdx = do
         -- more than one child --> invariant okay
         (_:_:_) -> return nodeIdx
 
-    nodeEmptyCase nodeIdx nodeLink = do
-      let parentIdx = nodeLink ^. ufilParent
-      (_parentIdx, parent) <- removeNode nodeIdx
-      assertM (parentIdx == _parentIdx)
-      at nodeIdx .= Nothing
-      -- since the invariant at the parent was still established before node has been removed
-      -- we are guaranteed that the recursive call will not run into this case again
-      reestablishInvariant (\_ _ -> assertM False >> return parentIdx) parentIdx parent
+  nodeEmptyCase nodeIdx nodeLink = do
+    let parentIdx = nodeLink ^. ufilParent
+    (_parentIdx, parent) <- removeNode nodeIdx
+    assertM (parentIdx == _parentIdx)
+    at nodeIdx .= Nothing
+    -- since the invariant at the parent was still established before node has been removed
+    -- we are guaranteed that the recursive call will not run into this case again
+    reestablishInvariant (\_ _ -> assertM False >> return parentIdx) parentIdx parent
 
 -- Do a bit of maintainance on the union find structure, basically by shortcutting a few nodes if possible
 -- to establish the correct (amortized) runtime bounds. We do this after every deletion
@@ -347,31 +343,31 @@ lemma4 nodeIdx = do
             [fc, sc] -> handleTwoGrandChildren firstChildIdx fc sc
             -- firstChild has at least 2 children itself (by invariant)
             _ -> error "invariant: vacant node has less than 2 children"
-      where
-        handleVacantGrandchild gchildIdx gchild = do
-          assertM (gchild ^. ufinVacant)
-          -- since this grand child is vacant, it must have at least two children
-          assertM (gchild ^. ufinLeftmostChild /= noLink)
-          -- shortcut any of them to node
-          shortcut (gchild ^. ufinLeftmostChild) nodeIdx
-          -- if gchild had exactly two children, this shortcutting also removed gchild
-          -- diminishing our returns by a bit
-          -- TODO: does it actually make sense to check this? Seems like little is gained
-          -- by accurately measuring this, at the cost of another indexing operation.
-          gchildRemoved <- uses (at gchildIdx) isNothing
-          return $ Just (nodeIdx, if gchildRemoved then 7 else 16)
+  where
+    handleVacantGrandchild gchildIdx gchild = do
+      assertM (gchild ^. ufinVacant)
+      -- since this grand child is vacant, it must have at least two children
+      assertM (gchild ^. ufinLeftmostChild /= noLink)
+      -- shortcut any of them to node
+      shortcut (gchild ^. ufinLeftmostChild) nodeIdx
+      -- if gchild had exactly two children, this shortcutting also removed gchild
+      -- diminishing our returns by a bit
+      -- TODO: does it actually make sense to check this? Seems like little is gained
+      -- by accurately measuring this, at the cost of another indexing operation.
+      gchildRemoved <- uses (at gchildIdx) isNothing
+      return $ Just (nodeIdx, if gchildRemoved then 7 else 16)
 
-        handleTwoGrandChildren firstChildIdx (firstGChildIdx, firstGChild) (secondGChildIdx, secondGChild)
-          | firstGChild ^. ufinVacant = handleVacantGrandchild firstGChildIdx firstGChild
-          | secondGChild ^. ufinVacant = handleVacantGrandchild secondGChildIdx secondGChild
-          | otherwise = do
-            -- if both are not vacant, enough work is done be shortcutting them both to node
-            shortcut firstGChildIdx nodeIdx
-            -- the other child is automatically shortcut to node, since its parent (firstChild) would
-            -- end up as a vacant node with a single child, which gets correct by shortcutting that child
-            -- assert that by observing that firstChild was removed
-            use (at firstChildIdx) >>= assertM . isNothing
-            return $ Just (nodeIdx, 15)
+    handleTwoGrandChildren firstChildIdx (firstGChildIdx, firstGChild) (secondGChildIdx, secondGChild)
+      | firstGChild ^. ufinVacant = handleVacantGrandchild firstGChildIdx firstGChild
+      | secondGChild ^. ufinVacant = handleVacantGrandchild secondGChildIdx secondGChild
+      | otherwise = do
+        -- if both are not vacant, enough work is done be shortcutting them both to node
+        shortcut firstGChildIdx nodeIdx
+        -- the other child is automatically shortcut to node, since its parent (firstChild) would
+        -- end up as a vacant node with a single child, which gets correct by shortcutting that child
+        -- assert that by observing that firstChild was removed
+        use (at firstChildIdx) >>= assertM . isNothing
+        return $ Just (nodeIdx, 15)
 
 findInternal :: forall b. NodeIdx -> IndexedLens' (UFILinkInfo b) (InternalLinkMap b) b
 findInternal key p env = case IMap.lookup key env of
@@ -380,19 +376,19 @@ findInternal key p env = case IMap.lookup key env of
          | otherwise -> snd (go key)
   where
     errBadKey = error "key error: value has been deleted"
-    updInfo key l env newB = env
-      & unsafeIx key . _AssertRoot . ufirData .~ newB
+    updInfo ckey cenv newB = cenv
+      & unsafeIx ckey . _AssertRoot . ufirData .~ newB
 
-    updLink key l newRoot = S.execState (shortcut key newRoot)
+    updLink ckey newRoot = S.execState (shortcut ckey newRoot)
 
-    go key = case IMap.lookup key env of
+    go ckey = case IMap.lookup ckey env of
       Just l -> case l ^. ufinFlavor of
         UFIFlavorRoot r
-          -> let info = UFILinkInfo key (r ^. ufirRank)
-              in (key, updInfo key l env <$> indexed @(UFILinkInfo b) p info (r ^. ufirData))
+          -> let info = UFILinkInfo ckey (r ^. ufirRank)
+              in (ckey, updInfo ckey env <$> indexed @(UFILinkInfo b) p info (r ^. ufirData))
         UFIFlavorLink lk
           -> let (root, env') = go (lk ^. ufilParent)
-              in (root, updLink key l root <$> env')
+              in (root, updLink ckey root <$> env')
       Nothing -> error "internal invariant: key error"
 
 findOrInitializeUFI :: (Ord a, UFC.DefaultFor a b) => a -> UnionFind a b NodeIdx
@@ -432,14 +428,14 @@ deleteInternal :: NodeIdx -> S.State (InternalLinkMap b) ()
 deleteInternal nodeIdx = vacate nodeIdx >>= doSomeWork 45
   where
     doSomeWork :: Int -> NodeIdx -> S.State (InternalLinkMap b) ()
-    doSomeWork workLeft workIdx | workLeft <= 0 = return ()
+    doSomeWork workLeft _ | workLeft <= 0 = return ()
     doSomeWork workLeft workIdx = do
-      workDone <- lemma4 workIdx
-      case workDone of
+      workRecord <- lemma4 workIdx
+      case workRecord of
         Nothing -> return () -- hit a root node, stop
         Just (nextNode, workDone) -> doSomeWork (workLeft - workDone) nextNode
 
-newtype UnionFindIntAccess (m :: * -> *) a b
+newtype UnionFindIntAccess (m :: Type -> Type) a b
   = UnionFindIntAccess
   { _ufiaEKey :: Int -- ^ the internal node, to which the data this access comes from points to
   }
@@ -460,7 +456,7 @@ instance (Ord a, UFC.DefaultFor a b, Monad m) => UFC.UnionFind (UnionFindT a b m
     eKey2 <- findOrInitializeUFI key2
     UnionFindT $ zoom ufisEnv $ unionInternal combine eKey1 eKey2
   forget key = stateful $ do
-    eKey <- ufisPreEnv . at key <.= Nothing
-    case eKey of
+    existingKey <- ufisPreEnv . at key <.= Nothing
+    case existingKey of
       Nothing -> pure ()
       Just eKey -> UnionFindT $ zoom ufisEnv $ deleteInternal eKey

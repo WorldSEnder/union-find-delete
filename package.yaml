@@ -47,6 +47,9 @@ default-extensions:
 - TemplateHaskell
 - TypeFamilies
 
+ghc-options:
+- -Wall
+
 tests:
   functionality-test:
     main:                Spec.hs

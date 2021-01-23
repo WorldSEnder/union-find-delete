@@ -19,6 +19,7 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad.IO.Class
 import Data.Default.Class
+import Data.Kind (Type)
 
 import qualified Control.Monad.State.Strict as S
 import           Data.Function (on)
@@ -72,24 +73,24 @@ instance Monad m => S.MonadState (UFIState a b) (UnionFindT a b m) where
   state = UnionFindT . S.state
 
 findInUIFMap :: forall b. b -> Int -> IndexedLens' (UFILinkInfo b) (InternalLinkMap b) b
-findInUIFMap defVal key p env = go p key where
+findInUIFMap defVal key p env = go key where
   f b = indexed @(UFILinkInfo b) p b
 
-  insertLinkInfo key rank env nextB = IMap.insert key (Info rank nextB) env
+  insertLinkInfo ckey rank cenv nextB = IMap.insert ckey (Info rank nextB) cenv
 
-  updLink key nextKey env = IMap.insert key (Link newRoot) env where
+  updLink ckey nextKey cenv = IMap.insert ckey (Link newRoot) cenv where
     newRoot =
-      case IMap.lookup nextKey env of
+      case IMap.lookup nextKey cenv of
         Just (Info _ _) -> nextKey
         Just (Link root) -> root
         Nothing -> error "link shouldn't go away"
 
-  go p key = case IMap.lookup key env of
-    Just (Info rank val) -> insertLinkInfo key rank env <$> f (UFILinkInfo key rank) val
-    Just (Link nextKey) -> updLink key nextKey <$> go p nextKey
-    Nothing -> insertLinkInfo key 0 env <$> f (UFILinkInfo key 0) defVal
+  go ckey = case IMap.lookup ckey env of
+    Just (Info rank val) -> insertLinkInfo ckey rank env <$> f (UFILinkInfo ckey rank) val
+    Just (Link nextKey) -> updLink ckey nextKey <$> go nextKey
+    Nothing -> insertLinkInfo ckey 0 env <$> f (UFILinkInfo ckey 0) defVal
 
-data UnionFindIntAccess a b (m :: * -> *)
+data UnionFindIntAccess a b (m :: Type -> Type)
   = UnionFindIntAccess
   { _ufiaDef :: !b
   , _ufiaEKey :: Int -- ^ the internal node, to which the data this access comes from points to
@@ -136,7 +137,7 @@ instance (DefaultFor a b, Ord a, Monad m) => UnionFind (UnionFindT a b m) where
           ufisEnv . at root1 ?= Info (li1 ^. ufiliRank) combined
           ufisEnv . at root2 ?= Link root1
 
-  forget key = error "deleting not supported"
+  forget _ = error "deleting not supported"
 
 newUFIState :: UFIState a b
 newUFIState = UFIState IMap.empty Map.empty 0
