@@ -64,3 +64,5 @@ tests:
     - tasty >= 1.2
     - tasty-hunit
     - data-default >= 0.7.1
+    - QuickCheck >= 2.14
+    - tasty-quickcheck

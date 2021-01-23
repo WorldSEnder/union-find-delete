@@ -20,6 +20,7 @@ import Control.Monad.Trans.UnionFindDelete.Util
 import Control.Lens
 import qualified Control.Monad.State.Class as S
 import Data.Default.Class
+import qualified Data.Set as Set
 
 -- | An accessor is a proxy for finding and modifying a value associated with a specific key.
 class UnionFindAccessor acc m | acc -> m where
@@ -93,3 +94,9 @@ instance Default b => Default (DefaultConst b) where
 
 instance Default b => DefaultFor a (DefaultConst b) where
   defFor = const $ DefaultConst def
+
+instance DefaultFor a (Maybe b) where
+  defFor _ = Nothing
+
+instance DefaultFor a (Set.Set a) where
+  defFor = Set.singleton

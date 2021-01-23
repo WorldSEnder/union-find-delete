@@ -8,6 +8,9 @@ module Control.Monad.Trans.UnionFindDelete.UnionFindT
 , runUnionFindT
 , execUnionFindT
 , evalUnionFindT
+, runUnionFind
+, execUnionFind
+, evalUnionFind
 , UFILinkInfo
 ) where
 
@@ -162,11 +165,20 @@ type UnionFind a b r = UnionFindT a b Identity r
 runUnionFindT :: UnionFindT a b m r -> UFIState a b -> m (r, UFIState a b)
 runUnionFindT = S.runStateT . getUnionFind
 
+runUnionFind :: UnionFind a b r -> UFIState a b -> (r, UFIState a b)
+runUnionFind uf = runIdentity . runUnionFindT uf
+
 execUnionFindT :: Monad m => UnionFindT a b m r -> UFIState a b -> m (UFIState a b)
 execUnionFindT = S.execStateT . getUnionFind
 
+execUnionFind :: UnionFind a b r -> UFIState a b -> UFIState a b
+execUnionFind uf = runIdentity . execUnionFindT uf
+
 evalUnionFindT :: Monad m => UnionFindT a b m r -> UFIState a b -> m r
 evalUnionFindT = S.evalStateT . getUnionFind
+
+evalUnionFind :: UnionFind a b r -> UFIState a b -> r
+evalUnionFind uf = runIdentity . evalUnionFindT uf
 
 instance Monad m => S.MonadState (UFIState a b) (UnionFindT a b m) where
   state = UnionFindT . S.state
