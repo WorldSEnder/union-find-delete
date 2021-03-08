@@ -1,0 +1,7 @@
+cradle:
+  stack:
+    - path: "./src"
+      component: "union-find-delete:lib"
+
+    - path: "./test"
+      component: "union-find-delete:test:functionality-test"
