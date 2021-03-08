@@ -128,12 +128,7 @@ noLink = -1
 newNode :: b -> UFINode b
 newNode val = UFINode False noLink noLink $ UFIRoot 0 val
 
-{-
-instance UFC.DefaultFor a b => UFC.DefaultFor a (UFINode b) where
-  defFor = newNode . UFC.defFor
--}
-
--- | Node identity
+-- | Node identity, used as additional index in find
 data UFILinkInfo b = UFILinkInfo
   { _ufiliRoot :: {-# UNPACK #-} !NodeIdx
   , _ufiliRank :: {-# UNPACK #-} !Int
@@ -363,9 +358,18 @@ findILM key p env = case IMap.lookup key env of
               in (root, updLink ckey root <$> env')
       Nothing -> error "internal invariant: key error"
 
+-- | Find an existing node. Can be used both to lookup the node and to update the data associated with it.
+-- Note that to actually benefit from the amortization the "find" operation provides, the updated structure
+-- has to be used, even if the data associated to the key is not changed.
+-- For this, use:
+--  ```
+--- Util.harvest  (find key1) :: S.State (UnionFindAGRTZ b) b
+--- Util.iharvest (find key1) :: S.State (UnionFindAGRTZ b) (UFILinkInfo b, b)
+--- ```
 find :: NodeIdx -> IndexedLens' (UFILinkInfo b) (UnionFindAGRTZ b) b
 find key = ufsNodes . findILM key
 
+-- | Perform a union, combining the associated data with the given operation, if necessary.
 union :: (b -> b -> b)
       -> NodeIdx -> NodeIdx -> S.State (UnionFindAGRTZ b) ()
 union combine key1 key2 = do
@@ -387,6 +391,10 @@ union combine key1 key2 = do
       unsafeIx root1 . ufinFlavor .= UFIRoot (li1 ^. ufiliRank) combined
       appendNode root2 root1
 
+-- | Delete a node. After this, the node can not be used for access, but if other
+-- nodes having belonged to the same class can still see the data.
+-- Cleanup is done to ensure the datastructure uses only linear amounts of memory
+-- to the amount of live nodes.
 delete :: NodeIdx -> S.State (UnionFindAGRTZ b) ()
 delete nodeIdx = zoom ufsNodes (vacate nodeIdx >>= doSomeWork 45)
   where
@@ -397,93 +405,13 @@ delete nodeIdx = zoom ufsNodes (vacate nodeIdx >>= doSomeWork 45)
         Nothing -> return () -- hit a root node, stop
         Just (nextNode, workDone) -> doSomeWork (workLeft - workDone) nextNode
 
+-- | Create a new node, and associated data with it.
 create :: b -> S.State (UnionFindAGRTZ b) NodeIdx
 create initialData = do
   eKey <- ufsNextId <%= (+ 1)
   ufsNodes . at eKey ?= newNode initialData
   return eKey
 
+-- | Create a new, empty, union find structure.
 empty :: UnionFindAGRTZ b
 empty = UnionFindAGRTZ 0 IMap.empty
-
-{-
-data UFIState a b = UFIState
-  { _ufisEnv :: !(InternalLinkMap b)
-  , _ufisPreEnv :: !(Map.Map a NodeIdx)
-  }
-
--- | Create a new empty state
-newUFIState :: UFIState a b
-newUFIState = UFIState IMap.empty Map.empty 0
-
-instance Default (UFIState a b) where
-  def = newUFIState
-
-$(makeLenses ''UFIState)
-
-newtype UnionFindT a b m r = UnionFindT { getUnionFind :: S.StateT (UFIState a b) m r }
-  deriving (Functor, Applicative, Monad, Alternative, MonadIO, Trans.MonadTrans)
-
-type UnionFind a b r = UnionFindT a b Identity r
-
-runUnionFindT :: UnionFindT a b m r -> UFIState a b -> m (r, UFIState a b)
-runUnionFindT = S.runStateT . getUnionFind
-
-runUnionFind :: UnionFind a b r -> UFIState a b -> (r, UFIState a b)
-runUnionFind uf = runIdentity . runUnionFindT uf
-
-execUnionFindT :: Monad m => UnionFindT a b m r -> UFIState a b -> m (UFIState a b)
-execUnionFindT = S.execStateT . getUnionFind
-
-execUnionFind :: UnionFind a b r -> UFIState a b -> UFIState a b
-execUnionFind uf = runIdentity . execUnionFindT uf
-
-evalUnionFindT :: Monad m => UnionFindT a b m r -> UFIState a b -> m r
-evalUnionFindT = S.evalStateT . getUnionFind
-
-evalUnionFind :: UnionFind a b r -> UFIState a b -> r
-evalUnionFind uf = runIdentity . evalUnionFindT uf
-
-instance Monad m => S.MonadState (UFIState a b) (UnionFindT a b m) where
-  state = UnionFindT . S.state
-
-stateful :: Monad m => UnionFind a b r -> UnionFindT a b m r
-stateful = S.state . S.runState . getUnionFind
-
-findOrInitializeUFI :: (Ord a, UFC.DefaultFor a b) => a -> UnionFind a b NodeIdx
-findOrInitializeUFI key = do
-  envKey <- use (ufisPreEnv . at key)
-  case envKey of
-    Just eKey -> return eKey
-    Nothing -> do
-      eKey <- ufisNextId <%= (+ 1)
-      ufisPreEnv . at key ?= eKey
-      ufisEnv . at eKey ?= UFC.defFor key
-      return eKey
-
-newtype UnionFindIntAccess (m :: Type -> Type) a b
-  = UnionFindIntAccess
-  { _ufiaEKey :: Int -- ^ the internal node, to which the data this access comes from points to
-  }
-
-instance UFC.DefaultFor a b => UFC.UnionFindAccessor (UnionFindIntAccess m a b) (UnionFindT a b m) where
-  getLookup access = ufisEnv . findInternal (_ufiaEKey access)
-
-instance (Ord a, UFC.DefaultFor a b, Monad m) => UFC.UnionFind (UnionFindT a b m) where
-  type UnionFindKey (UnionFindT a b m) = a
-  type UnionFindState (UnionFindT a b m) = UFIState a b
-  type UnionFindId (UnionFindT a b m) = UFILinkInfo b
-  type UnionFindAccess (UnionFindT a b m) = UnionFindIntAccess m a b
-  type UnionFindVal (UnionFindT a b m) = b
-
-  findFor key = stateful $ UnionFindIntAccess <$> findOrInitializeUFI key
-  unionWith combine key1 key2 = stateful $ do
-    eKey1 <- findOrInitializeUFI key1
-    eKey2 <- findOrInitializeUFI key2
-    UnionFindT $ zoom ufisEnv $ unionInternal combine eKey1 eKey2
-  forget key = stateful $ do
-    existingKey <- ufisPreEnv . at key <.= Nothing
-    case existingKey of
-      Nothing -> pure ()
-      Just eKey -> UnionFindT $ zoom ufisEnv $ deleteInternal eKey
--}
