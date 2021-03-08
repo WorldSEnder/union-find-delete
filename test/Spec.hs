@@ -7,7 +7,7 @@ import IntMapProps
 
 import Control.Monad.Trans.UnionFindDelete.Class
 import Control.Monad.Trans.UnionFindDelete.UnionFindT
-import qualified Control.Monad.Trans.UnionFindDelete.UnionFindSimple as Simple
+import qualified Control.Monad.Trans.UnionFindDelete.Internal.UnionFindSimple as Simple
 
 import Control.Applicative
 import Control.Monad
@@ -61,7 +61,6 @@ graphUnionFind testDelete step = do
     liftIO $ val3 @=? defFor (3 :: Integer)
 
 
-
 prop_SpanningTreeInt :: [(Integer, Integer)] -> Bool
 prop_SpanningTreeInt [] = True
 prop_SpanningTreeInt tree = evalUnionFind ufProg def == Set.fromList (tree >>= \(a, b) -> [a, b])
@@ -69,6 +68,7 @@ prop_SpanningTreeInt tree = evalUnionFind ufProg def == Set.fromList (tree >>= \
     ufProg = do
       forM_ tree $ uncurry union
       find $ fst $ head tree
+
 
 main :: IO ()
 main = defaultMain $ testGroup "union find test"

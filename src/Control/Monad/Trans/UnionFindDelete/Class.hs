@@ -15,7 +15,7 @@ module Control.Monad.Trans.UnionFindDelete.Class
 , DefaultConst(..)
 ) where
 
-import Control.Monad.Trans.UnionFindDelete.Util
+import Control.Monad.Trans.UnionFindDelete.Internal.Util
 
 import Control.Lens
 import qualified Control.Monad.State.Class as S

@@ -1,6 +1,7 @@
 -- | A union-only-find implementation without a delete operation. Mostly as a reference implementation
--- and for estimating the performance overhead of maintaining the link structure.
-module Control.Monad.Trans.UnionFindDelete.UnionFindSimple
+-- and for estimating the performance overhead of maintaining the link structure, and as such not subject
+-- to versioning policy.
+module Control.Monad.Trans.UnionFindDelete.Internal.UnionFindSimple
 ( UFIState
 , newUFIState
 , UnionFindT(..)
@@ -13,7 +14,7 @@ module Control.Monad.Trans.UnionFindDelete.UnionFindSimple
 ) where
 
 import Control.Monad.Trans.UnionFindDelete.Class
-import Control.Monad.Trans.UnionFindDelete.Util
+import Control.Monad.Trans.UnionFindDelete.Internal.Util
 
 import Control.Applicative
 import Control.Lens

@@ -1,4 +1,4 @@
-module Control.Monad.Trans.UnionFindDelete.Util
+module Control.Monad.Trans.UnionFindDelete.Internal.Util
 ( harvest
 , iharvest
 , harvests

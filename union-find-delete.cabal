@@ -27,9 +27,10 @@ source-repository head
 library
   exposed-modules:
       Control.Monad.Trans.UnionFindDelete.Class
-      Control.Monad.Trans.UnionFindDelete.UnionFindSimple
+      Control.Monad.Trans.UnionFindDelete.Internal.UnionFindSimple
+      Control.Monad.Trans.UnionFindDelete.Internal.Util
       Control.Monad.Trans.UnionFindDelete.UnionFindT
-      Control.Monad.Trans.UnionFindDelete.Util
+      Data.UnionFindDelete.AGRTZ
   other-modules:
       Paths_union_find_delete
   hs-source-dirs:
